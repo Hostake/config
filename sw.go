@@ -1,72 +1,106 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
-	"net"
-	"strings"
-	"time"
+    "bufio"
+    "fmt"
+    "log"
+    "os"
+    "strings"
+
+    "github.com/reiver/go-telnet"
 )
 
 func main() {
-	// Set the switch's IP address and credentials
-	ipAddress := "192.168.1.1"
-	username := "admin"
-	password := "password"
+    // Адрес коммутатора
+    addr := "192.168.1.1:23"
 
-	// Set the file path to save the configuration
-	filePath := "switch_config.txt"
+    // Имя пользователя и пароль
+    username := "admin"
+    password := "password"
 
-	// Connect to the switch via Telnet
-	conn, err := net.Dial("tcp", ipAddress+":23")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer conn.Close()
+    // Подключаемся к коммутатору
+    conn, err := telnet.Dial("tcp", addr)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conn.Close()
 
-	// Wait for the login prompt
-	buf := make([]byte, 1024)
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	_, err = conn.Read(buf)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+    // Читаем приветственное сообщение
+    reader := bufio.NewReader(conn)
+    msg, err := reader.ReadString('\n')
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(msg)
 
-	// Send the username and password
-	fmt.Fprintf(conn, "%s\n", username)
-	fmt.Fprintf(conn, "%s\n", password)
+    // Вводим имя пользователя
+    _, err = conn.Write([]byte(username + "\n"))
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	// Wait for the command prompt
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	_, err = conn.Read(buf)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+    // Читаем сообщение о пароле
+    msg, err = reader.ReadString('\n')
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(msg)
 
-	// Send the command to show the configuration
-	fmt.Fprintf(conn, "show running-config\n")
+    // Вводим пароль
+    _, err = conn.Write([]byte(password + "\n"))
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	// Read the configuration
-	var config strings.Builder
-	for {
-		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-		_, err = conn.Read(buf)
-		if err != nil {
-			break
-		}
-		config.WriteString(string(buf))
-	}
+    // Читаем сообщение после авторизации
+    msg, err = reader.ReadString('\n')
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(msg)
 
-	// Save the configuration to a file
-	err = ioutil.WriteFile(filePath, []byte(config.String()), 0644)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+    // Выполняем команду show running-config
+    cmd := "show running-config\n"
+    _, err = conn.Write([]byte(cmd))
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	fmt.Printf("Configuration saved to %s\n", filePath)
+    // Создаем файл для записи конфигурации
+    file, err := os.Create("config.txt")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer file.Close()
+
+    // Читаем результат команды и записываем в файл
+    for {
+        msg, err = reader.ReadString('\n')
+        if err != nil {
+            log.Fatal(err)
+        }
+        if strings.Contains(msg, "--More--") {
+            // Если появляется "--More--", то отправляем пробел для продолжения вывода
+            _, err = conn.Write([]byte(" "))
+            if err != nil {
+                log.Fatal(err)
+            }
+        } else if strings.Contains(msg, "end") {
+            // Если появляется "end", то завершаем чтение конфигурации
+            break
+        }
+        _, err = file.WriteString(msg)
+        if err != nil {
+            log.Fatal(err)
+        }
+    }
+
+    fmt.Println("Конфигурация сохранена в файле config.txt")
+
+    // Выходим из коммутатора
+    cmd = "exit\n"
+    _, err = conn.Write([]byte(cmd))
+    if err != nil {
+        log.Fatal(err)
+    }
 }
-
