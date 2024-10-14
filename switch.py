@@ -1,44 +1,32 @@
-import socket
+import pexpect
+import getpass
 
-def save_switch_configuration(ip_address, port, username, password, output_file):
-    try:
-        # Создаем сокет
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            # Устанавливаем соединение
-            s.connect((ip_address, port))
-            print(f"Подключение к {ip_address}:{port} успешно.")
+# Get the switch IP address and username from the user
+switch_ip = input("Enter the switch IP address: ")
+username = input("Enter the username: ")
 
-            # Авторизация
-            s.sendall(b"username " + username.encode('ascii') + b"\n")
-            print("Отправлен логин.")
-            s.recv(1024)  # Получаем ответ от коммутатора
+# Get the password from the user without echoing
+password = getpass.getpass("Enter the password: ")
 
-            s.sendall(b"password " + password.encode('ascii') + b"\n")
-            print("Отправлен пароль.")
-            s.recv(1024)  # Получаем ответ от коммутатора
+# Establish a connection to the switch using pexpect
+child = pexpect.spawn(f"telnet {switch_ip} 23")
+child.expect("Username:")
+child.sendline(username)
+child.expect("Password:")
+child.sendline(password)
 
-            # Отправляем команду для получения конфигурации
-            s.sendall(b"show running-config\n")
-            print("Команда отправлена.")
+# Wait for the switch to prompt for a command
+child.expect("#")
 
-            # Получаем данные
-            data = b""
-            while True:
-                part = s.recv(4096)
-                if not part:
-                    break
-                data += part
+# Send the command to show the running configuration
+child.sendline("show running-config")
 
-            # Декодируем данные в ASCII
-            configuration = data.decode('ascii', errors='ignore')
+# Wait for the output
+child.expect("#")
 
-            # Сохраняем конфигурацию в файл
-            with open(output_file, 'w', encoding='ascii') as f:
-                f.write(configuration)
-            print(f"Конфигурация сохранена в {output_file}.")
+# Get the output and save it to a file
+output = child.before.decode("utf-8")
+with open("switch_config.txt", "w") as f:
+    f.write(output)
 
-    except Exception as e:
-        print(f"Произошла ошибка: {e}")
-
-# Пример использования
-save_switch_configuration('192.168.1.1', 23, 'my_username', 'my_password', 'switch_config.txt')
+print("Configuration saved to switch_config.txt")
