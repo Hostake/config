@@ -1,77 +1,44 @@
 import socket
 
-# Define the switch's IP address and credentials
-switch_ip = '192.168.1.1'
-username = 'admin'
-password = 'password'
+def save_switch_configuration(ip_address, port, username, password, output_file):
+    try:
+        # Создаем сокет
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            # Устанавливаем соединение
+            s.connect((ip_address, port))
+            print(f"Подключение к {ip_address}:{port} успешно.")
 
-# Define the file to save the configuration
-config_file = 'switch_config.txt'
+            # Авторизация
+            s.sendall(b"username " + username.encode('ascii') + b"\n")
+            print("Отправлен логин.")
+            s.recv(1024)  # Получаем ответ от коммутатора
 
-# Establish a socket connection to the switch
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect((switch_ip, 23))  # Telnet port is 23
+            s.sendall(b"password " + password.encode('ascii') + b"\n")
+            print("Отправлен пароль.")
+            s.recv(1024)  # Получаем ответ от коммутатора
 
-# Login to the switch
-sock.sendall(b'\n')  # Send a newline character to get the login prompt
-data = ''
-while 'Username:' not in data:
-    chunk = sock.recv(1024)
-    if chunk.startswith(b'\xff'):  # Handle Telnet commands
-        # Ignore or handle the Telnet command
-        continue
-    data += chunk.decode('utf-8', errors='replace')  # Decode with error handling
+            # Отправляем команду для получения конфигурации
+            s.sendall(b"show running-config\n")
+            print("Команда отправлена.")
 
-sock.sendall(username.encode() + b'\n')
-data = ''
-while 'Password:' not in data:
-    chunk = sock.recv(1024)
-    if chunk.startswith(b'\xff'):  # Handle Telnet commands
-        # Ignore or handle the Telnet command
-        continue
-    data += chunk.decode('utf-8', errors='replace')  # Decode with error handling
+            # Получаем данные
+            data = b""
+            while True:
+                part = s.recv(4096)
+                if not part:
+                    break
+                data += part
 
-sock.sendall(password.encode() + b'\n')
-data = ''
-while '>' not in data and '#' not in data:
-    chunk = sock.recv(1024)
-    if chunk.startswith(b'\xff'):  # Handle Telnet commands
-        # Ignore or handle the Telnet command
-        continue
-    data += chunk.decode('utf-8', errors='replace')  # Decode with error handling
+            # Декодируем данные в ASCII
+            configuration = data.decode('ascii', errors='ignore')
 
-# Enter enable mode (if required)
-sock.sendall(b'enable\n')
-data = ''
-while '>' not in data and '#' not in data:
-    chunk = sock.recv(1024)
-    if chunk.startswith(b'\xff'):  # Handle Telnet commands
-        # Ignore or handle the Telnet command
-        continue
-    data += chunk.decode('utf-8', errors='replace')  # Decode with error handling
+            # Сохраняем конфигурацию в файл
+            with open(output_file, 'w', encoding='ascii') as f:
+                f.write(configuration)
+            print(f"Конфигурация сохранена в {output_file}.")
 
-# Get the switch's configuration
-sock.sendall(b'show running-config\n')
-config = ''
-while True:
-    chunk = sock.recv(1024)
-    if chunk.startswith(b'\xff'):  # Handle Telnet commands
-        # Ignore or handle the Telnet command
-        continue
-    output = chunk.decode('utf-8', errors='replace')  # Decode with error handling
-    config += output
-    if '--More--' in output:
-        sock.sendall(b' ')
-    else:
-        break
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
 
-# Save the configuration to a file
-with open(config_file, 'w') as f:
-    f.write(config)
-
-# Close the socket connection
-sock.close()
-
-print(f'Configuration saved to {config_file}')
-
-Найти еще
+# Пример использования
+save_switch_configuration('192.168.1.1', 23, 'my_username', 'my_password', 'switch_config.txt')
